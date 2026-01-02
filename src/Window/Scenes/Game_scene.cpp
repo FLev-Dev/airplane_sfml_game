@@ -3,8 +3,9 @@
 
 #include "Entities/Small_stone.hpp"
 #include "Entities/Big_stone.hpp"
-#include "Entities/Scout.hpp"
 #include "Entities/Warrior.hpp"
+#include "Entities/Scout.hpp"
+#include "Entities/Boss.hpp"
 
 #include <utils/debug_bounds.hpp>
 #include <random>
@@ -18,10 +19,18 @@ Game_scene::Game_scene(Main_window& window, const int32_t level_id):
         level_duration_ = 120.f;
         spawn_time_ = 1.5f; 
 		break;
+    case 1:
+        level_duration_ = 0.f;
+        spawn_time_ = 3.f;
+        break;
+    case 2:
+        level_duration_ = 0.f;
+        spawn_time_ = 2.f;
+        break;
 
     default:
         level_duration_ = 0.f;
-        spawn_time_ = 3.f;
+        spawn_time_ = 0.f;
 		break;
     }
 
@@ -102,6 +111,10 @@ void Game_scene::update(const float dt)
     {
         spawn_enemy();
         spawn_clock_.restart();
+        if (current_level_id_ == 2)
+        {
+			spawn_clock_.stop(); // Only one boss in level 2
+        }
     }
 
 	// Bullets spawn
@@ -143,6 +156,18 @@ void Game_scene::update(const float dt)
             main_window_.switch_to_victory(score_);
             return;
         }
+    }
+    else if (current_level_id_ == 2)
+    {
+        // Level 2 win condition: boss defeated
+        if (enemies_["boss"].size() > 0 && enemies_["boss"][0]->get_hp() == 0)
+        {
+            // Victory
+            score_ += (300 - level_timer_.getElapsedTime().asSeconds()) * 5; // Bonus for speed
+            score_ += player_.get_hp() * 10; // Bonus for remaining health
+            main_window_.switch_to_victory(score_);
+            return;
+		}
     }
 
 	// Player update
@@ -194,9 +219,58 @@ void Game_scene::update(const float dt)
                     enemy_bullets_.push_back(std::make_unique<Bullet>(
                         sf::Vector2f(enemy_bounds.position.x, enemy_bounds.position.y + enemy_bounds.size.y / 2.f),
                         sf::Vector2f(-600.f, 0.f),
-                        "assets/enemy_bullet1.png"
+                        "assets/enemy_bullet.png"
                     ));
                 }
+            }
+            if (type == "boss")
+            {
+                Boss* boss_enemy = dynamic_cast<Boss*>(it->get());
+                if (boss_enemy->is_need_to_shoot())
+                {
+                    const auto enemy_bounds = boss_enemy->get_bounds();
+                    const sf::Vector2f spawn_pos(
+                        enemy_bounds.position.x + 50.f,
+                        enemy_bounds.position.y + enemy_bounds.size.y / 2.f
+                    );
+                    constexpr float base_angle_deg = 180.0f; // Leftward direction in SFML degrees.
+                    constexpr float speed = 600.0f;          // Magnitude of velocity (positive value).
+
+                    std::vector<int32_t> offsets; // Degrees
+                    constexpr int32_t max_angle_offset_angle = 60; // From 0
+                    constexpr int32_t bullets_count = 30;
+                    const auto angle_step = max_angle_offset_angle * 2 / bullets_count;
+
+                    auto current_angle = -max_angle_offset_angle;
+                    for (int32_t i = 0; i < bullets_count; i++)
+                    {
+                        offsets.push_back(current_angle);
+                        current_angle += angle_step;
+                    }
+
+                    for (const int32_t offset : offsets)
+                    {
+                        const float angle_deg = base_angle_deg + static_cast<float>(offset);
+                        const float angle_rad = angle_deg * 3.1415926535f / 180.0f;
+
+                        sf::Vector2f velocity(
+                            speed * std::cos(angle_rad),
+                            speed * std::sin(angle_rad)
+                        );
+
+                        auto bullet = std::make_unique<Bullet>(
+                            spawn_pos,
+                            velocity,
+                            "assets/boss_bullet.png",
+                            sf::Vector2f{ 0.15f, 0.15f }
+                        );
+                        bullet->set_rotation(sf::degrees(angle_deg - 180));
+                        enemy_bullets_.push_back(std::move(bullet));
+                    }
+                }
+				// Boss has no collisions with player
+                it++;
+                continue;
             }
 
             if ((*it)->is_out_of_bounds(window_size))
@@ -277,7 +351,8 @@ void Game_scene::update(const float dt)
                     if ((*enemy_it)->take_damage(1))  // Enemy destroyed
                     {
 						score_ += (*enemy_it)->get_score_value();
-						enemy_it = enemies.erase(enemy_it);
+						// Remove enemy unless it's a boss.
+                        if(type != "boss") enemy_it = enemies.erase(enemy_it);
 
                         if (type == "scout") total_scout_enemies_--;
                         else if (type == "warrior") total_warrior_enemies_--;
@@ -390,6 +465,11 @@ void Game_scene::draw_game_objects(sf::RenderTarget& render_target)
         enemy->draw(render_target);
         flev::debug::draw_debug_bounds(render_target, enemy->get_bounds());
     }
+    for (const auto& enemy : enemies_["boss"])
+    {
+        enemy->draw(render_target);
+        flev::debug::draw_debug_bounds(render_target, enemy->get_bounds());
+    }
 	// Enemy bullets
     for (const auto& bullet : enemy_bullets_)
     {
@@ -443,6 +523,26 @@ void Game_scene::initialize_sky(const sf::Vector2u& window_size)
             return;
         }
         sf::Texture& sky_texture = ui_textures_["level_1_bg"];
+
+        // Sky
+        sky_sprites_.emplace_back(std::make_unique<sf::Sprite>(sky_texture));
+
+        float scale_x = static_cast<float>(window_size.x) / sky_texture.getSize().x;
+        float scale_y = static_cast<float>(window_size.y) / sky_texture.getSize().y;
+
+        sky_sprites_[0]->setScale({ scale_x, scale_y });
+        break;
+    }
+    case 2:
+    {
+        // Load sky texture
+        if (!ui_textures_.contains("level_2_bg") &&
+            !ui_textures_["level_2_bg"].loadFromFile("assets/level_2_bg.png"))
+        {
+            LOG_ERROR(get_global_logger(), "Failed to load level '{}' background.", current_level_id_);
+            return;
+        }
+        sf::Texture& sky_texture = ui_textures_["level_2_bg"];
 
         // Sky
         sky_sprites_.emplace_back(std::make_unique<sf::Sprite>(sky_texture));
@@ -601,7 +701,7 @@ void Game_scene::spawn_enemy()
     {
         if (wave_number++ % 3 == 0)
         {
-			// Spawn scouts (2 per every third wave)
+            // Spawn scouts (2 per every third wave)
             for (size_t i = 0; i < 2; i++)
             {
                 if (enemies_["scout"].size() >= total_scout_enemies_)
@@ -621,6 +721,11 @@ void Game_scene::spawn_enemy()
             const float y = static_cast<float>(rand() % (win_size.y / 2u));
             enemies_["warrior"].emplace_back(std::make_unique<Warrior>(sf::Vector2f(win_size.x + 50, y)));
         }
+        break;
+    }
+    case 2: // Boss level
+    {
+        enemies_["boss"].emplace_back(std::make_unique<Boss>(sf::Vector2f(win_size.x + 100.f, win_size.y / 2.f)));
         break;
     }
     }

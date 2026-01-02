@@ -24,11 +24,12 @@ add_executable(sfml_airplane
   src/utils/database_api.hpp					src/utils/database_api.cpp
 
   # Game objects
+  src/Entities/Small_stone.hpp
+  src/Entities/Big_stone.hpp
   src/Entities/Entity.hpp
   src/Entities/Bullet.hpp
   src/Entities/Enemy.hpp
-  src/Entities/Small_stone.hpp
-  src/Entities/Big_stone.hpp
+  src/Entities/Boss.hpp
   src/Entities/Player.hpp						src/Entities/Player.cpp					
 
   # Game management

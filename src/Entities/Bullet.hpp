@@ -28,6 +28,12 @@ public:
         set_position(pos);
     }//!update
 
+	/** @brief Sets the rotation of the bullet sprite. */
+    void set_rotation(const sf::Angle angle)
+    {
+        sprite_->setRotation(angle);
+	}//!set_rotation
+
 private:
 	sf::Vector2f velocity_; ///< Velocity of the bullet.
 };//!class Bullet
